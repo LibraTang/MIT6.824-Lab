@@ -93,6 +93,7 @@ func main() {
 //
 // load the application Map and Reduce functions
 // from a plugin file, e.g. ../mrapps/wc.so
+// 加载动态库，绑定不同的 *.so 文件，就会加载不同的 map, reduce 函数，从而实现动态绑定
 //
 func loadPlugin(filename string) (func(string, string) []mr.KeyValue, func(string, []string) string) {
 	p, err := plugin.Open(filename)

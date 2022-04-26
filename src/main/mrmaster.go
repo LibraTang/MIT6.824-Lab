@@ -9,11 +9,17 @@ package main
 // Please do not change this file.
 //
 
-import "../mr"
-import "time"
-import "os"
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"time"
 
+	"../mr"
+)
+
+//
+// 调用master进程
+//
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: mrmaster inputfiles...\n")

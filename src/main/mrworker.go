@@ -10,12 +10,18 @@ package main
 // Please do not change this file.
 //
 
-import "../mr"
-import "plugin"
-import "os"
-import "fmt"
-import "log"
+import (
+	"fmt"
+	"log"
+	"os"
+	"plugin"
 
+	"../mr"
+)
+
+//
+// 加载动态库，调用Worker进程
+//
 func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintf(os.Stderr, "Usage: mrworker xxx.so\n")
