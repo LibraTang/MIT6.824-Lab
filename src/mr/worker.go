@@ -1,10 +1,13 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-
+import (
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net/rpc"
+	"os"
+	"time"
+)
 
 //
 // Map functions return a slice of KeyValue.
@@ -24,17 +27,62 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
+	// 启动worker
+	for {
+		// worker从master获取任务
+		task := getTask()
+		// 根据task的state,将map任务交给mapper,reduce任务交给reducer
+		// golang的switch默认情况下每个case自带break
+		switch task.TaskState {
+		case Map:
+			mapper(&task, mapf)
+		case Reduce:
+			reducer(&task, reducef)
+		case Wait:
+			time.Sleep(5 * time.Second)
+		case Exit:
+			return
+		}
+	}
+}
 
-	// Your worker implementation here.
+//
+// worker向master发送rpc请求task
+//
+func getTask() Task {
+	args := ExampleArgs{}
+	reply := Task{}
 
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
+	// 发送rpc请求
+	call("Master.AssignTask", &args, &reply)
+
+	return reply
+}
+
+//
+// 处理map任务
+//
+func mapper(task *Task, mapf func(string, string) []KeyValue) {
+	// 读取文件内容
+	content, err := os.ReadFile(task.Input)
+	if err != nil {
+		log.Fatal("Failed to read file: "+task.Input, err)
+	}
+	// content交给mapf处理,并缓存中间结果
+	intermediates := mapf(task.Input, string(content))
+
+	// 缓存的中间结果保存在本地磁盘,并切分成R份(reducer的数量)
+	// 根据key作为hash切分
+	buffer := make([][]KeyValue, task.NReducer)
+
+}
+
+func reducer(task *Task, reducef func(string, []string) string) {
 
 }
 
