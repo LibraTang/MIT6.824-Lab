@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Task状态
+// Task状态(Map或Reduce)
 type MasterTaskStatus int
 
 // Task 和 Master 状态
@@ -162,12 +162,34 @@ func (m *Master) catchTimeout() {
 		}
 		for _, masterTask := range m.TaskMeta {
 			if masterTask.TaskStatus == InProgress && time.Since(masterTask.StartTime) > 10*time.Second {
+				// 若存在超时任务，则将该任务放回任务队列，重置任务状态
 				m.TaskQueue <- masterTask.TaskReference
 				masterTask.TaskStatus = Idle
 			}
 		}
 		mu.Unlock()
 	}
+}
+
+//
+// master监听来自worker的rpc，分配任务
+//
+func (m *Master) AssignTask(args *ExampleArgs, reply *Task) error {
+	// master查看任务队列里是否有task
+	mu.Lock()
+	defer mu.Unlock()
+	if len(m.TaskQueue) > 0 {
+		*reply = *<-m.TaskQueue
+		// 记录task状态和启动时间
+		m.TaskMeta[reply.TaskNumber].TaskStatus = InProgress
+		m.TaskMeta[reply.TaskNumber].StartTime = time.Now()
+	} else if m.MasterPhase == Exit {
+		*reply = Task{TaskState: Exit}
+	} else {
+		// 若没有task，则让worker等待
+		*reply = Task{TaskState: Wait}
+	}
+	return nil
 }
 
 func max(a, b int) int {
