@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -18,6 +19,15 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+// 重写sort.Interface中的3个方法，根据key排序
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -94,8 +104,48 @@ func mapper(task *Task, mapf func(string, string) []KeyValue) {
 	taskCompleted(task)
 }
 
+//
+// 处理reduce任务
+//
 func reducer(task *Task, reducef func(string, []string) string) {
+	// 读取中间结果
+	intermediate := *readFromLocalFile(task.Intermediates)
+	// 根据kv排序
+	sort.Sort(ByKey(intermediate))
+	// 创建临时文件
+	dir, _ := os.Getwd()
+	tempFile, err := os.CreateTemp(dir, "mr-tmp_*")
+	if err != nil {
+		log.Fatal("Failed to create temp file", err)
+	}
+	//
+	// call Reduce on each distinct key in intermediate[],
+	// and print the result to mr-out-0.
+	//
+	for i := 0; i < len(intermediate); {
+		// 将相同key的value累加
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		output := reducef(intermediate[i].Key, values)
 
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(tempFile, "%v %v\n", intermediate[i].Key, output)
+
+		i = j
+	}
+	tempFile.Close()
+	// 重命名文件
+	outputName := fmt.Sprintf("mr-out-%d", task.TaskNumber)
+	os.Rename(tempFile.Name(), outputName)
+	task.Output = outputName
+	// 通知master任务完成
+	taskCompleted(task)
 }
 
 //
@@ -122,6 +172,30 @@ func writeToLocalFile(mapTaskNumber int, reduceTaskNumber int, intermediate *[]K
 	outputName := fmt.Sprintf("mr-%d-%d", mapTaskNumber, reduceTaskNumber)
 	os.Rename(tempFile.Name(), outputName)
 	return filepath.Join(dir, outputName)
+}
+
+//
+// 从本地磁盘读取中间结果
+//
+func readFromLocalFile(files []string) *[]KeyValue {
+	kva := []KeyValue{}
+	for _, filePath := range files {
+		file, err := os.Open(filePath)
+		if err != nil {
+			log.Fatal("Failed to open file "+filePath, err)
+		}
+		// json解码
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			kva = append(kva, kv)
+		}
+		file.Close()
+	}
+	return &kva
 }
 
 //

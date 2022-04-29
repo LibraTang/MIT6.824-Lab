@@ -94,10 +94,10 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	ret := false
-
-	// Your code here.
-
+	mu.Lock()
+	defer mu.Unlock()
+	// 若master转入exit阶段，则所有任务都已经完成
+	ret := m.MasterPhase == Exit
 	return ret
 }
 
@@ -135,16 +135,16 @@ func MakeMaster(files []string, nReduce int) *Master {
 func (m *Master) createMapTask() {
 	// 根据传入的file，每个文件对应一个map任务
 	for idx, filename := range m.InputFiles {
-		taskMeta := Task{
+		task := Task{
 			Input:      filename,
 			TaskState:  Map,
 			TaskNumber: idx,
 			NReducer:   m.NReduce,
 		}
-		m.TaskQueue <- &taskMeta
+		m.TaskQueue <- &task
 		m.TaskMeta[idx] = &MasterTask{
 			TaskStatus:    Idle,
-			TaskReference: &taskMeta,
+			TaskReference: &task,
 		}
 	}
 }
@@ -153,7 +153,21 @@ func (m *Master) createMapTask() {
 // 创建reduce任务
 //
 func (m *Master) createReduceTask() {
-
+	// 重建任务元信息，取代上一阶段的map任务元信息
+	m.TaskMeta = make(map[int]*MasterTask)
+	for idx, files := range m.Intermediates {
+		task := Task{
+			TaskState:     Reduce,
+			TaskNumber:    idx,
+			NReducer:      m.NReduce,
+			Intermediates: files,
+		}
+		m.TaskQueue <- &task
+		m.TaskMeta[idx] = &MasterTask{
+			TaskStatus:    Idle,
+			TaskReference: &task,
+		}
+	}
 }
 
 //
@@ -216,7 +230,7 @@ func (m *Master) TaskCompleted(task *Task, reply *ExampleReply) error {
 }
 
 //
-//
+// 每完成一个任务，整理到master信息中，并判断是否要转到下一阶段
 //
 func (m *Master) processTaskResult(task *Task) {
 	mu.Lock()
