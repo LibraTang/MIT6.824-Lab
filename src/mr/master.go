@@ -150,6 +150,13 @@ func (m *Master) createMapTask() {
 }
 
 //
+// 创建reduce任务
+//
+func (m *Master) createReduceTask() {
+
+}
+
+//
 // 检查超时任务
 //
 func (m *Master) catchTimeout() {
@@ -190,6 +197,60 @@ func (m *Master) AssignTask(args *ExampleArgs, reply *Task) error {
 		*reply = Task{TaskState: Wait}
 	}
 	return nil
+}
+
+//
+// 收到worker发送的完成的task
+//
+func (m *Master) TaskCompleted(task *Task, reply *ExampleReply) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if task.TaskState != m.MasterPhase || m.TaskMeta[task.TaskNumber].TaskStatus == Completed {
+		// 丢弃重复的结果
+		return nil
+	}
+	m.TaskMeta[task.TaskNumber].TaskStatus = Completed
+	// 启动一个go routine处理task结果
+	go m.processTaskResult(task)
+	return nil
+}
+
+//
+//
+//
+func (m *Master) processTaskResult(task *Task) {
+	mu.Lock()
+	defer mu.Unlock()
+	// 若所有的map任务都完成,则进入reduce阶段
+	// 若所有的reduce任务都完成,则exit
+	switch task.TaskState {
+	case Map:
+		// 收集intermediate信息
+		for reduceTaskId, filePath := range task.Intermediates {
+			m.Intermediates[reduceTaskId] = append(m.Intermediates[reduceTaskId], filePath)
+		}
+		// 若所有的map任务都完成,则进入reduce阶段
+		if m.allTaskDone() {
+			m.createReduceTask()
+			m.MasterPhase = Reduce
+		}
+	case Reduce:
+		if m.allTaskDone() {
+			m.MasterPhase = Exit
+		}
+	}
+}
+
+//
+// 检查当前阶段的任务是否都完成
+//
+func (m *Master) allTaskDone() bool {
+	for _, task := range m.TaskMeta {
+		if task.TaskStatus != Completed {
+			return false
+		}
+	}
+	return true
 }
 
 func max(a, b int) int {
