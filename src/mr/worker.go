@@ -119,8 +119,7 @@ func reducer(task *Task, reducef func(string, []string) string) {
 		log.Fatal("Failed to create temp file", err)
 	}
 	//
-	// call Reduce on each distinct key in intermediate[],
-	// and print the result to mr-out-0.
+	// call Reduce on each distinct key in intermediate[]
 	//
 	for i := 0; i < len(intermediate); {
 		// 将相同key的value累加
