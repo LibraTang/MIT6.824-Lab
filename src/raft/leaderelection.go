@@ -1,0 +1,56 @@
+package raft
+
+import (
+	"math/rand"
+	"sync"
+	"time"
+)
+
+// return currentTerm and whether this server
+// believes it is the leader.
+func (rf *Raft) GetState() (int, bool) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term := rf.currentTerm
+	isleader := rf.state == Leader
+	return term, isleader
+}
+
+//
+// 重置选举计时器
+//
+func (rf *Raft) resetElectionTimer() {
+	t := time.Now()
+	// 选举超时时间
+	electionTimeout := time.Duration(150+rand.Intn(150)) * time.Millisecond
+	rf.electionTime = t.Add(electionTimeout)
+}
+
+//
+// 发起leader选举
+//
+func (rf *Raft) leaderElection() {
+	rf.currentTerm++
+	rf.state = Candidate
+	rf.votedFor = rf.me
+	rf.persist()
+	rf.resetElectionTimer()
+	term := rf.currentTerm
+	voteCounter := 1
+	lastLog := rf.log.lastLog()
+	DPrintf("[%v]: Start leader election, term %d\n", rf.me, rf.currentTerm)
+	args := RequestVoteArgs{
+		Term:         term,
+		CandidateId:  rf.me,
+		LastLogIndex: lastLog.Index,
+		LastLogTerm:  lastLog.Term,
+	}
+
+	// 向所有peer请求投票
+	var becomeLeader sync.Once
+	for serverId, _ := range rf.peers {
+		if serverId != rf.me {
+			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becomeLeader)
+		}
+	}
+}
