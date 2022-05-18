@@ -18,15 +18,17 @@ package raft
 //
 
 import (
+	"bytes"
+	"fmt"
+	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"../labgob"
 	"../labrpc"
 )
-
-// import "bytes"
-// import "../labgob"
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -101,14 +103,14 @@ type Raft struct {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
-	// Your code here (2C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	DPrintf("[%v]: STATE: %v", rf.me, rf.log.String())
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -118,19 +120,20 @@ func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
-	// Your code here (2C).
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor int
+	var logs Log
+
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&logs) != nil {
+		log.Fatal("failed to read persist\n")
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.log = logs
+	}
 }
 
 //
@@ -148,13 +151,28 @@ func (rf *Raft) readPersist(data []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	// Your code here (2B).
+	if rf.state != Leader {
+		return -1, rf.currentTerm, false
+	}
 
-	return index, term, isLeader
+	index := rf.log.lastLog().Index + 1
+	term := rf.currentTerm
+
+	log := Entry{
+		Command: command,
+		Index:   index,
+		Term:    term,
+	}
+	rf.log.append(log)
+
+	rf.persist()
+	DPrintf("[%v]: Term %v Start %v\n", rf.me, term, log)
+	rf.appendEntries(false)
+
+	return index, term, true
 }
 
 //
@@ -241,4 +259,50 @@ func (rf *Raft) ticker() {
 		}
 		rf.mu.Unlock()
 	}
+}
+
+//
+// 通知其他所有server可以处理apply
+//
+func (rf *Raft) apply() {
+	rf.applyCond.Broadcast()
+	DPrintf("[%v]: rf.applyCond.Broadcast()\n", rf.me)
+}
+
+//
+// 处理日志apply
+//
+func (rf *Raft) applier() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	for !rf.killed() {
+		// rule 1 for all servers
+		if rf.commitIndex > rf.lastApplied && rf.log.lastLog().Index > rf.lastApplied {
+			rf.lastApplied++
+			ApplyMsg := ApplyMsg{
+				CommandValid: true,
+				Command:      rf.log.at(rf.lastApplied).Command,
+				CommandIndex: rf.lastApplied,
+			}
+			DPrintf("[%v]: COMMIT %d: %v\n", rf.me, rf.lastApplied, rf.commits())
+			rf.mu.Unlock()
+			rf.applyCh <- ApplyMsg
+			rf.mu.Lock()
+		} else {
+			rf.applyCond.Wait()
+			DPrintf("[%v]: rf.applyCond.Wait()\n", rf.me)
+		}
+	}
+}
+
+//
+// 已提交的所有命令的字符串
+//
+func (rf *Raft) commits() string {
+	nums := []string{}
+	for i := 0; i <= rf.lastApplied; i++ {
+		nums = append(nums, fmt.Sprintf("%4d", rf.log.at(i).Command))
+	}
+	return fmt.Sprint(strings.Join(nums, "|"))
 }
