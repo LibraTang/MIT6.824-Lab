@@ -27,6 +27,19 @@ func (rf *Raft) resetElectionTimer() {
 }
 
 //
+// 设置新的Term
+//
+func (rf *Raft) setNewTerm(term int) {
+	if term > rf.currentTerm || rf.currentTerm == 0 {
+		rf.state = Follower
+		rf.currentTerm = term
+		rf.voteFor = -1
+		DPrintf("[%v]: Set term %v\n", rf.me, rf.currentTerm)
+		rf.persist()
+	}
+}
+
+//
 // 发起leader选举
 //
 func (rf *Raft) leaderElection() {
