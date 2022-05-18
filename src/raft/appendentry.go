@@ -149,7 +149,7 @@ func (rf *Raft) leaderCommitRule() {
 //
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
-	defer rf.mu.unLock()
+	defer rf.mu.Unlock()
 
 	DPrintf("[%d]: (Term %d) Follwer received [%v] AppendEntries %v, prevIndex %v, prevTerm %v\n", rf.me, rf.currentTerm, args.LeaderId, args.Entries, args.PrevLogIndex, args.PrevLogTerm)
 	// rules for servers
@@ -207,7 +207,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if entry.Index > rf.log.lastLog().Index {
 			rf.log.append(args.Entries[idx:]...)
 			DPrintf("[%d]: Follower append [%v]\n", rf.me, args.Entries[idx:])
-			rf.persist
+			rf.persist()
 			break
 		}
 	}
@@ -223,7 +223,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 //
 // RPC调用AppendEntries
 //
-func (rf *Raft) sendAppendEntries(serverId int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+func (rf *Raft) sendAppendEntries(serverId int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[serverId].Call("Raft.AppendEntries", args, reply)
 	return ok
 }

@@ -33,7 +33,7 @@ func (rf *Raft) setNewTerm(term int) {
 	if term > rf.currentTerm || rf.currentTerm == 0 {
 		rf.state = Follower
 		rf.currentTerm = term
-		rf.voteFor = -1
+		rf.votedFor = -1
 		DPrintf("[%v]: Set term %v\n", rf.me, rf.currentTerm)
 		rf.persist()
 	}
