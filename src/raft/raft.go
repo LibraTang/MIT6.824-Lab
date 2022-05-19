@@ -197,6 +197,24 @@ func (rf *Raft) killed() bool {
 }
 
 //
+// ticker以心跳为周期不断检查状态，如果当前是leader就发送心跳包
+// 如果发现选举超时，则发起新一轮选举
+//
+func (rf *Raft) ticker() {
+	for rf.killed() == false {
+		time.Sleep(rf.heartBeat)
+		rf.mu.Lock()
+		if rf.state == Leader {
+			rf.appendEntries(true)
+		}
+		if time.Now().After(rf.electionTime) {
+			rf.leaderElection()
+		}
+		rf.mu.Unlock()
+	}
+}
+
+//
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
@@ -244,24 +262,6 @@ func Make(peers []*labrpc.ClientEnd, me int, persister *Persister, applyCh chan 
 }
 
 //
-// ticker以心跳为周期不断检查状态，如果当前是leader就发送心跳包
-// 如果发现选举超时，则发起新一轮选举
-//
-func (rf *Raft) ticker() {
-	for rf.killed() == false {
-		time.Sleep(rf.heartBeat)
-		rf.mu.Lock()
-		if rf.state == Leader {
-			rf.appendEntries(true)
-		}
-		if time.Now().After(rf.electionTime) {
-			rf.leaderElection()
-		}
-		rf.mu.Unlock()
-	}
-}
-
-//
 // 通知其他所有server可以处理apply
 //
 func (rf *Raft) apply() {
@@ -280,14 +280,14 @@ func (rf *Raft) applier() {
 		// rule 1 for all servers
 		if rf.commitIndex > rf.lastApplied && rf.log.lastLog().Index > rf.lastApplied {
 			rf.lastApplied++
-			ApplyMsg := ApplyMsg{
+			applyMsg := ApplyMsg{
 				CommandValid: true,
 				Command:      rf.log.at(rf.lastApplied).Command,
 				CommandIndex: rf.lastApplied,
 			}
 			DPrintf("[%v]: COMMIT %d: %v\n", rf.me, rf.lastApplied, rf.commits())
 			rf.mu.Unlock()
-			rf.applyCh <- ApplyMsg
+			rf.applyCh <- applyMsg
 			rf.mu.Lock()
 		} else {
 			rf.applyCond.Wait()
