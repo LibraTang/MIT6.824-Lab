@@ -28,7 +28,7 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	rf.mu.Lock()
-	defer rf.mu.Lock()
+	defer rf.mu.Unlock()
 
 	// 若请求参数的Term比服务器当前的Term大，更新当前Term
 	if args.Term > rf.currentTerm {

@@ -61,7 +61,7 @@ func (rf *Raft) leaderElection() {
 
 	// 向所有peer请求投票
 	var becomeLeader sync.Once
-	for serverId, _ := range rf.peers {
+	for serverId := range rf.peers {
 		if serverId != rf.me {
 			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becomeLeader)
 		}
