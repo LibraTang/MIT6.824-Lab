@@ -24,7 +24,7 @@ type AppendEntriesReply struct {
 //
 func (rf *Raft) appendEntries(heartBeat bool) {
 	lastLog := rf.log.lastLog()
-	for peer, _ := range rf.peers {
+	for peer := range rf.peers {
 		if peer == rf.me {
 			// 重置选举计时器
 			rf.resetElectionTimer()
