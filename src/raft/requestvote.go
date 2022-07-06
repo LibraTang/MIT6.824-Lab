@@ -44,7 +44,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	myLastLog := rf.log.lastLog()
 	// 判断请求参数是否过时
-	upToDate := args.LastLogTerm > myLastLog.Term || (args.LastLogIndex == myLastLog.Term && args.LastLogIndex >= myLastLog.Index)
+	upToDate := args.LastLogTerm > myLastLog.Term || (args.LastLogTerm == myLastLog.Term && args.LastLogIndex >= myLastLog.Index)
 	// 同意投票
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && upToDate {
 		reply.VoteGranted = true
