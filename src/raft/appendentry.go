@@ -13,10 +13,10 @@ type AppendEntriesReply struct {
 	Term     int
 	Success  bool
 	Conflict bool
-	// fast rollback优化需要这3个字段
-	XTerm  int
-	XIndex int
-	XLen   int
+	// fast Backup优化需要这3个字段
+	XTerm  int // Follower中与Leader冲突的Log对应的任期号; 如果Follower在对应位置没有Log，那么这里会返回 -1
+	XIndex int // 这个是Follower中，对应任期号为XTerm的第一条Log条目的槽位号
+	XLen   int // 如果Follower在对应位置没有Log，那么XTerm会返回-1，XLen表示Follower当前Entry长度
 }
 
 //
