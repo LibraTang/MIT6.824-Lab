@@ -20,3 +20,10 @@ type AppendEntriesRequest struct {
 	Entries      []Entry
 	LeaderCommit int
 }
+
+type AppendEntriesResponse struct {
+	Term          int
+	Success       bool
+	ConflictIndex int
+	ConflictTerm  int
+}

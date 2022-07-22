@@ -40,7 +40,7 @@ type Entry struct {
 	Command interface{}
 }
 
-type NodeState int
+type NodeState uint8
 
 const (
 	StateFollower NodeState = iota
@@ -82,10 +82,27 @@ func Max(x, y int) int {
 	return y
 }
 
+func Min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
+}
+
 func RandomizedElectionTimeout() time.Duration {
 	return time.Duration(ElectionTimeout+globalRand.Intn(ElectionTimeout)) * time.Millisecond
 }
 
 func StableHeartbeatTimeout() time.Duration {
 	return time.Duration(HeartbeatTimeout) * time.Millisecond
+}
+
+func shrinkEntriesArray(entries []Entry) []Entry {
+	const lenMultiple = 2
+	if len(entries)*lenMultiple < cap(entries) {
+		newEntries := make([]Entry, len(entries))
+		copy(newEntries, entries)
+		return newEntries
+	}
+	return entries
 }
