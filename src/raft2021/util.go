@@ -1,6 +1,7 @@
 package raft2021
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -34,10 +35,24 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+func (msg ApplyMsg) String() string {
+	if msg.CommandValid {
+		return fmt.Sprintf("{Command:%v,CommandTerm:%v,CommandIndex:%v}", msg.Command, msg.CommandTerm, msg.CommandIndex)
+	} else if msg.SnapshotValid {
+		return fmt.Sprintf("{Snapshot:%v,SnapshotTerm:%v,SnapshotIndex:%v}", msg.Snapshot, msg.SnapshotTerm, msg.SnapshotIndex)
+	} else {
+		panic(fmt.Sprintf("unexpected ApplyMsg{CommandValid:%v,CommandTerm:%v,CommandIndex:%v,SnapshotValid:%v,SnapshotTerm:%v,SnapshotIndex:%v}", msg.CommandValid, msg.CommandTerm, msg.CommandIndex, msg.SnapshotValid, msg.SnapshotTerm, msg.SnapshotIndex))
+	}
+}
+
 type Entry struct {
 	Index   int
 	Term    int
 	Command interface{}
+}
+
+func (entry Entry) String() string {
+	return fmt.Sprintf("{Index:%v,Term:%v}", entry.Index, entry.Term)
 }
 
 type NodeState uint8
@@ -47,6 +62,18 @@ const (
 	StateCandidate
 	StateLeader
 )
+
+func (state NodeState) String() string {
+	switch state {
+	case StateFollower:
+		return "Follower"
+	case StateCandidate:
+		return "Candidate"
+	case StateLeader:
+		return "Leader"
+	}
+	panic(fmt.Sprintf("unexpected NodeState %d", state))
+}
 
 type lockedRand struct {
 	mu   sync.Mutex
@@ -63,6 +90,7 @@ var globalRand = &lockedRand{
 	rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 }
 
+// the duration of timeout cannot too long or too short
 const (
 	HeartbeatTimeout = 125
 	ElectionTimeout  = 1000

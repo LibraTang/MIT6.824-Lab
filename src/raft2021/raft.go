@@ -112,7 +112,8 @@ func (rf *Raft) readPersist(data []byte) {
 	d := labgob.NewDecoder(r)
 	var currentTerm, votedFor int
 	var logs []Entry
-	if d.Decode(currentTerm) != nil || d.Decode(votedFor) != nil || d.Decode(logs) != nil {
+	// remember to use pointer as parameter of Decode()
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&logs) != nil {
 		DPrintf("{Node %v} restores persisted stated failed", rf.me)
 	}
 	rf.currentTerm, rf.votedFor, rf.logs = currentTerm, votedFor, logs
@@ -178,6 +179,41 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	DPrintf("{Node %v}'s state is {state %v, term %v, commitIndex %v, lastApplied %v, firstLog %v, lastLog %v} after replacing log with snapshotIndex %v as old snapshotIndex %v is smaller", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), index, snapshotIndex)
 }
 
+// Raft leaders sometimes tell lagging Raft peers to update their state by installing a snapshot
+func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	defer DPrintf("{Node %v}'s state is {state %v, term, commitIndex %v, lastApplied %v, firstLog %v, lastLog %v} before processing InstallSnapshotRequest %v and reply InstallSnapshotResponse %v", rf.me, rf.state, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), request, response)
+
+	response.Term = rf.currentTerm
+
+	if request.Term < rf.currentTerm {
+		return
+	}
+
+	if request.Term > rf.currentTerm {
+		rf.currentTerm, rf.votedFor = request.Term, -1
+		rf.persist()
+	}
+
+	rf.ChangeState(StateFollower)
+	rf.electionTimer.Reset(RandomizedElectionTimeout())
+
+	// outdated snapshot
+	if request.LastIncludedIndex <= rf.commitIndex {
+		return
+	}
+
+	go func() {
+		rf.applyCh <- ApplyMsg{
+			SnapshotValid: true,
+			Snapshot:      request.Data,
+			SnapshotTerm:  request.LastIncludedTerm,
+			SnapshotIndex: request.LastIncludedIndex,
+		}
+	}()
+}
+
 //
 // example RequestVote RPC handler.
 //
@@ -225,6 +261,7 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 	}
 
 	rf.ChangeState(StateFollower)
+	rf.electionTimer.Reset(RandomizedElectionTimeout())
 
 	if request.PrevLogIndex < rf.getFirstLog().Index {
 		response.Term, response.Success = 0, false
@@ -326,6 +363,19 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 		rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), response, request)
 }
 
+func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
+	if rf.state == StateLeader && rf.currentTerm == request.Term {
+		if response.Term > rf.currentTerm {
+			rf.ChangeState(StateFollower)
+			rf.currentTerm, rf.votedFor = response.Term, -1
+			rf.persist()
+		} else {
+			rf.matchIndex[peer], rf.nextIndex[peer] = request.LastIncludedIndex, request.LastIncludedIndex+1
+		}
+	}
+	DPrintf("{Node %v}'s state is {state %v, term %v, commitIndex %v, lastApplied %v, firstLog %v, lastLog %v} after handling InstallSnapshotResponse %v for InstallSnapshotRequest %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), request, response)
+}
+
 //
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
@@ -361,6 +411,10 @@ func (rf *Raft) sendRequestVote(server int, request *RequestVoteRequest, respons
 
 func (rf *Raft) sendAppendEntries(server int, request *AppendEntriesRequest, response *AppendEntriesResponse) bool {
 	return rf.peers[server].Call("Raft.AppendEntries", request, response)
+}
+
+func (rf *Raft) sendInstallSnapshot(server int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) bool {
+	return rf.peers[server].Call("Raft.InstallSnapshot", request, response)
 }
 
 func (rf *Raft) StartElection() {
@@ -438,6 +492,17 @@ func (rf *Raft) genAppendEntriesRequest(prevLogIndex int) *AppendEntriesRequest 
 		PrevLogTerm:  rf.logs[prevLogIndex-firstLogIndex].Term,
 		Entries:      entries,
 		LeaderCommit: rf.commitIndex,
+	}
+}
+
+func (rf *Raft) genInstallSnapshotRequest() *InstallSnapshotRequest {
+	firstLog := rf.getFirstLog()
+	return &InstallSnapshotRequest{
+		Term:              rf.currentTerm,
+		LeaderId:          rf.me,
+		LastIncludedIndex: firstLog.Index,
+		LastIncludedTerm:  firstLog.Term,
+		Data:              rf.persister.ReadSnapshot(),
 	}
 }
 
@@ -596,7 +661,15 @@ func (rf *Raft) replicateOneRound(peer int) {
 	}
 	prevLogIndex := rf.nextIndex[peer] - 1
 	if prevLogIndex < rf.getFirstLog().Index {
-		// TODO: only snapshot can catch up
+		// only snapshot can catch up
+		request := rf.genInstallSnapshotRequest()
+		rf.mu.RUnlock()
+		response := new(InstallSnapshotResponse)
+		if rf.sendInstallSnapshot(peer, request, response) {
+			rf.mu.Lock()
+			rf.handleInstallSnapshotResponse(peer, request, response)
+			rf.mu.Unlock()
+		}
 	} else {
 		// just entries can catch up
 		request := rf.genAppendEntriesRequest(prevLogIndex)
