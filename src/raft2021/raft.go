@@ -284,7 +284,7 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 			for index >= firstLogIndex && rf.logs[index-firstLogIndex].Term == response.ConflictTerm {
 				index--
 			}
-			response.ConflictIndex = index
+			response.ConflictIndex = index + 1
 		}
 		return
 	}
@@ -347,15 +347,15 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 				rf.persist()
 			} else if response.Term == rf.currentTerm {
 				rf.nextIndex[peer] = response.ConflictIndex
-				if response.ConflictTerm != -1 {
-					firstIndex := rf.getFirstLog().Index
-					for i := request.PrevLogIndex; i >= firstIndex; i-- {
-						if rf.logs[i-firstIndex].Term == response.ConflictTerm {
-							rf.nextIndex[peer] = i + 1
-							break
-						}
-					}
-				}
+				// if response.ConflictTerm != -1 {
+				// 	firstIndex := rf.getFirstLog().Index
+				// 	for i := request.PrevLogIndex; i >= firstIndex; i-- {
+				// 		if rf.logs[i-firstIndex].Term == response.ConflictTerm {
+				// 			rf.nextIndex[peer] = i + 1
+				// 			break
+				// 		}
+				// 	}
+				// }
 			}
 		}
 	}
