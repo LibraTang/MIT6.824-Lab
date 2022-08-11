@@ -1,4 +1,4 @@
-package raft2021
+package raft
 
 import "fmt"
 
