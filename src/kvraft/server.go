@@ -145,52 +145,50 @@ func (kv *KVServer) applyLogToStateMachine(command Command) *CommandResponse {
 // A dedicated applier goroutine to apply committed entries to stateMachine, take snapshot and apply snapshot from raft
 func (kv *KVServer) applier() {
 	for !kv.killed() {
-		select {
-		case message := <-kv.applyCh:
-			DPrintf("{Node %v} tries to apply message %v", kv.rf.Me(), message)
-			if message.CommandValid {
-				kv.mu.Lock()
-				if message.CommandIndex <= kv.lastApplied {
-					DPrintf("{Node %v} discards outdated message %v because a newer snapshot which lastApplied is %v has been restored", kv.rf.Me(), message, kv.lastApplied)
-					kv.mu.Unlock()
-					continue
-				}
-				kv.lastApplied = message.CommandIndex
-
-				var response *CommandResponse
-				// type conversion
-				command := message.Command.(Command)
-				if command.Op != OpGet && kv.isDuplicateRequest(command.ClientId, command.CommandId) {
-					DPrintf("{Node %v} doesn't apply duplicated message %v to stateMachine because maxAppliedCommandId is %v for client %v", kv.rf.Me(), message, kv.lastOperations[command.ClientId], command.ClientId)
-					response = kv.lastOperations[command.ClientId].LastResponse
-				} else {
-					response = kv.applyLogToStateMachine(command)
-					if command.Op != OpGet {
-						kv.lastOperations[command.ClientId] = OperationContext{command.CommandId, response}
-					}
-				}
-
-				// only notify related channel for currentTerm's log when node is leader
-				if currentTerm, isLeader := kv.rf.GetState(); isLeader && message.CommandTerm == currentTerm {
-					ch := kv.getNotifyChan(message.CommandIndex)
-					ch <- response
-				}
-
-				needSnapshot := kv.needSnapshot()
-				if needSnapshot {
-					kv.takeSnapshot(message.CommandIndex)
-				}
+		message := <-kv.applyCh
+		DPrintf("{Node %v} tries to apply message %v", kv.rf.Me(), message)
+		if message.CommandValid {
+			kv.mu.Lock()
+			if message.CommandIndex <= kv.lastApplied {
+				DPrintf("{Node %v} discards outdated message %v because a newer snapshot which lastApplied is %v has been restored", kv.rf.Me(), message, kv.lastApplied)
 				kv.mu.Unlock()
-			} else if message.SnapshotValid {
-				kv.mu.Lock()
-				if kv.rf.CondInstallSnapshot(message.SnapshotTerm, message.SnapshotIndex, message.Snapshot) {
-					kv.restoreSnapshot(message.Snapshot)
-					kv.lastApplied = message.SnapshotIndex
-				}
-				kv.mu.Unlock()
-			} else {
-				panic(fmt.Sprintf("Unexpected message: %v", message))
+				continue
 			}
+			kv.lastApplied = message.CommandIndex
+
+			var response *CommandResponse
+			// type conversion
+			command := message.Command.(Command)
+			if command.Op != OpGet && kv.isDuplicateRequest(command.ClientId, command.CommandId) {
+				DPrintf("{Node %v} doesn't apply duplicated message %v to stateMachine because maxAppliedCommandId is %v for client %v", kv.rf.Me(), message, kv.lastOperations[command.ClientId], command.ClientId)
+				response = kv.lastOperations[command.ClientId].LastResponse
+			} else {
+				response = kv.applyLogToStateMachine(command)
+				if command.Op != OpGet {
+					kv.lastOperations[command.ClientId] = OperationContext{command.CommandId, response}
+				}
+			}
+
+			// only notify related channel for currentTerm's log when node is leader
+			if currentTerm, isLeader := kv.rf.GetState(); isLeader && message.CommandTerm == currentTerm {
+				ch := kv.getNotifyChan(message.CommandIndex)
+				ch <- response
+			}
+
+			needSnapshot := kv.needSnapshot()
+			if needSnapshot {
+				kv.takeSnapshot(message.CommandIndex)
+			}
+			kv.mu.Unlock()
+		} else if message.SnapshotValid {
+			kv.mu.Lock()
+			if kv.rf.CondInstallSnapshot(message.SnapshotTerm, message.SnapshotIndex, message.Snapshot) {
+				kv.restoreSnapshot(message.Snapshot)
+				kv.lastApplied = message.SnapshotIndex
+			}
+			kv.mu.Unlock()
+		} else {
+			panic(fmt.Sprintf("Unexpected message: %v", message))
 		}
 	}
 }
@@ -216,6 +214,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	applyCh := make(chan raft.ApplyMsg)
 
 	kv := &KVServer{
+		// use KVServer's persister & applyCh to initialize raft
 		rf:             raft.Make(servers, me, persister, applyCh),
 		applyCh:        applyCh,
 		stateMachine:   NewMemoryKV(),
