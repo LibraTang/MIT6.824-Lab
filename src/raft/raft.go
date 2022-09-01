@@ -98,6 +98,13 @@ func (rf *Raft) GetRaftStateSize() int {
 	return rf.persister.RaftStateSize()
 }
 
+// Used by upper layer to detect whether there are any logs in current term
+func (rf *Raft) HasLogInCurrentTerm() bool {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	return rf.getLastLog().Term == rf.currentTerm
+}
+
 //
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
