@@ -31,14 +31,14 @@ const (
 	Wait
 )
 
-// 任务
+// 任务 Master存储Task的信息
 type MasterTask struct {
 	TaskStatus    MasterTaskStatus
 	StartTime     time.Time
 	TaskReference *Task
 }
 
-// 任务详情
+// 任务详情, Map和Reduce共用
 type Task struct {
 	Input         string
 	TaskState     State
@@ -53,7 +53,7 @@ type Master struct {
 	// Your definitions here.
 	TaskQueue     chan *Task          // 任务队列
 	TaskMeta      map[int]*MasterTask // 任务元信息
-	MasterPhase   State               // Master所处阶段
+	MasterPhase   State               // Master所处阶段, task和master应该一致
 	NReduce       int
 	InputFiles    []string
 	Intermediates [][]string // Map任务产生的R个中间文件
@@ -135,16 +135,16 @@ func MakeMaster(files []string, nReduce int) *Master {
 func (m *Master) createMapTask() {
 	// 根据传入的file，每个文件对应一个map任务
 	for idx, filename := range m.InputFiles {
-		task := Task{
+		task := &Task{
 			Input:      filename,
 			TaskState:  Map,
 			TaskNumber: idx,
 			NReducer:   m.NReduce,
 		}
-		m.TaskQueue <- &task
+		m.TaskQueue <- task
 		m.TaskMeta[idx] = &MasterTask{
 			TaskStatus:    Idle,
-			TaskReference: &task,
+			TaskReference: task,
 		}
 	}
 }
@@ -156,16 +156,16 @@ func (m *Master) createReduceTask() {
 	// 重建任务元信息，取代上一阶段的map任务元信息
 	m.TaskMeta = make(map[int]*MasterTask)
 	for idx, files := range m.Intermediates {
-		task := Task{
+		task := &Task{
 			TaskState:     Reduce,
 			TaskNumber:    idx,
 			NReducer:      m.NReduce,
 			Intermediates: files,
 		}
-		m.TaskQueue <- &task
+		m.TaskQueue <- task
 		m.TaskMeta[idx] = &MasterTask{
 			TaskStatus:    Idle,
-			TaskReference: &task,
+			TaskReference: task,
 		}
 	}
 }

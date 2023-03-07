@@ -112,7 +112,7 @@ func reducer(task *Task, reducef func(string, []string) string) {
 	intermediate := *readFromLocalFile(task.Intermediates)
 	// 根据kv排序
 	sort.Sort(ByKey(intermediate))
-	// 创建临时文件
+	// 创建临时文件，保证文件读写的原子性
 	dir, _ := os.Getwd()
 	tempFile, err := os.CreateTemp(dir, "mr-tmp_*")
 	if err != nil {
@@ -154,7 +154,7 @@ func reducer(task *Task, reducef func(string, []string) string) {
 func writeToLocalFile(mapTaskNumber int, reduceTaskNumber int, intermediate *[]KeyValue) string {
 	// 获取当前路径
 	dir, _ := os.Getwd()
-	// 创建临时文件，防止一台机器crash的时候被其他机器观察到写了一半的文件
+	// 创建临时文件，防止一台机器crash的时候被其他机器观察到写了一半的文件，保证生成文件时的原子性
 	tempFile, err := os.CreateTemp(dir, "mr-tmp-*")
 	if err != nil {
 		log.Fatal("Failed to create temp file", err)

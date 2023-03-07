@@ -4,7 +4,7 @@
 # basic map-reduce test
 #
 
-RACE=
+#RACE=
 
 # uncomment this to run the tests with the Go race detector.
 RACE=-race
